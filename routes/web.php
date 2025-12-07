@@ -63,7 +63,28 @@ Route::middleware('auth')->group(function () {
     Route::get('/transactions', [TransactionController::class, 'index'])->name('transactions.index');
 
     // Invoices
-    Route::resource('invoices', InvoiceController::class);
+
+
+    Route::get('/settings/invoice', [SettingController::class, 'invoice'])->name('settings.invoice');
+Route::post('/settings/invoice', [SettingController::class, 'storeInvoiceSettings'])->name('settings.invoice.store');
+Route::get('/invoice-settings', [InvoiceSettingController::class, 'edit'])->name('invoice.settings');
+Route::post('/invoice-settings', [InvoiceSettingController::class, 'update'])->name('invoice.settings.update');
+Route::get('/invoices/create', [InvoiceController::class, 'create'])->name('invoices.create');
+Route::post('/invoices', [InvoiceController::class, 'store'])->name('invoices.store');
+// Download invoice
+Route::get('/invoices/{purchase}/download', [InvoiceController::class, 'download'])->name('invoices.download');
+Route::get('/invoices/create', [InvoiceController::class, 'create'])->name('invoices.create');
+Route::get('/invoices/show', [InvoiceController::class, 'create'])->name('invoices.show');
+
+    Route::post('/invoices', [InvoiceController::class, 'store'])->name('invoices.store');
+
+    Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices.index');
+    Route::get('/invoices/{invoice}/show', [InvoiceController::class, 'show'])->name('invoices.show');
+    Route::resource('invoices', InvoiceController::class)->except(['edit','update','destroy']);
+    Route::get('invoices/download/{invoice}', [InvoiceController::class,'download'])->name('invoices.download');
+
+
+
 });
 
 // ---------------------------

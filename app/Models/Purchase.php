@@ -16,14 +16,14 @@ class Purchase extends Model
     protected $fillable = [
         'client_id',
         'car_id',
-        'user_id',
-        'prix_vente',
         'prix_total',
+        'prix_vente', // Ajouter cette ligne
         'avance',
         'reste',
         'payment_method',
         'date_achat',
-        'cheque_scan',
+        'user_id',
+        'cheque_scan'
     ];
 
     // Relation avec Car
@@ -43,5 +43,13 @@ class Purchase extends Model
     {
         return $this->belongsTo(User::class);
     }
+
+    public function getEtatPaiementAttribute()
+{
+    if ($this->reste <= 0) {
+        return "Payé";
+    }
+    return "Restant: " . $this->reste . " DH";
+}
     
 }

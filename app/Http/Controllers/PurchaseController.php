@@ -10,6 +10,9 @@ use App\Models\Car;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Support\Facades\Storage; 
+
 
 class PurchaseController extends Controller
 {
@@ -30,6 +33,14 @@ class PurchaseController extends Controller
             $query->whereYear('created_at', $request->year);
         }
 
+        if ($request->filled('status')) {
+            if ($request->status == 'paye') {
+                $query->where('reste', '<=', 0);
+            } elseif ($request->status == 'reste') {
+                $query->where('reste', '>', 0);
+            }
+        }
+
         $purchases = $query->orderBy('created_at','desc')->paginate(10)->withQueryString();
         return view('purchases.index', compact('purchases'));
     }
@@ -40,45 +51,60 @@ class PurchaseController extends Controller
         $cars = Car::where('statut','Disponible')->get();
         return view('purchases.create', compact('clients','cars'));
     }
+public function store(Request $request)
+{
+    $data = $request->validate([
+        'client_id' => 'required',
+        'car_id' => 'required',
+        'prix_total' => 'required|numeric',
+        'avance' => 'required|numeric',
+        'reste' => 'required|numeric',
+        'prix_vente' => 'required|numeric',
+        'payment_method' => 'required',
+        'date_achat' => 'required|date',
+        'cheque_scan' => 'nullable|file'
+    ]);
 
-    public function store(Request $request)
-    {
-        $request->validate([
-            'client_id'=>'required|exists:clients,id',
-            'car_id'=>'required|exists:cars,id',
-            'prix_total'=>'required|numeric|min:0',
-            'avance'=>'required|numeric|min:0',
-            'payment_method'=>'required|in:cash,cheque,virement',
-            'cheque_scan'=>'nullable|file|mimes:jpg,jpeg,png,pdf|max:10240',
-            'date_achat'=>'required|date'
-        ]);
-
-        $data = $request->only(['client_id','car_id','prix_total','avance','payment_method','date_achat']);
-        $data['reste'] = $data['prix_total'] - $data['avance'];
-        $data['user_id'] = auth()->id();
-
-        if($request->hasFile('cheque_scan')){
-            $data['cheque_scan'] = $request->file('cheque_scan')->store('cheques','public');
-        }
-
-        $purchase = Purchase::create($data);
-
-        Invoice::create([
-            'client_id'=>$data['client_id'],
-            'numero'=>'F-'.time(),
-            'date_emission'=>now(),
-            'montant'=>$data['prix_total'],
-            'description'=>'Achat véhicule ID: '.$data['car_id']
-        ]);
-
-        $car = Car::findOrFail($data['car_id']);
-        $car->statut = "Vendue";
-        $car->prix_vente = $data['prix_total'];
-        $car->save();
-
-        return redirect()->back()->with('success','Achat et facture générée avec succès !');
+    // Si chèque uploadé
+    if($request->hasFile('cheque_scan')){
+        $data['cheque_scan'] = $request->file('cheque_scan')->store('cheques','public');
     }
 
+    $data['user_id'] = auth()->id();
+
+    // ⬇️ L'achat est enregistré
+    $purchase = Purchase::create($data);
+
+    // ==============================================================  
+    // 📄 GÉNÉRATION AUTOMATIQUE DE LA FACTURE PDF  
+    // ==============================================================
+
+    $settings = \App\Models\InvoiceSetting::first();
+
+    $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('pdf.invoice', [
+        'purchase' => $purchase,
+        'settings'  => $settings
+    ]);
+
+    $path = 'invoices/' . $purchase->id . '.pdf';
+
+    \Illuminate\Support\Facades\Storage::disk('public')
+        ->put($path, $pdf->output());
+
+    // Si tu as invoice_path dans la table purchases
+    $purchase->update([
+        'invoice_path' => $path
+    ]);
+    // ==============================================================
+
+    // Mise à jour voiture vendue
+    $car = Car::findOrFail($data['car_id']);
+    $car->statut = "Vendue";
+    $car->save();
+
+    return redirect()->route('purchases.index')
+                     ->with('success', 'Achat enregistré & facture générée.');
+}
     public function edit(Purchase $purchase)
     {
         return view('purchases.edit', [

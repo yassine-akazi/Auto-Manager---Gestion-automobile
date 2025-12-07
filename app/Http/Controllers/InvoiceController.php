@@ -2,64 +2,84 @@
 
 namespace App\Http\Controllers;
 
+use Illuminate\Http\Request;
 use App\Models\Invoice;
 use App\Models\Client;
-use Illuminate\Http\Request;
+use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Support\Facades\Storage;
 
 class InvoiceController extends Controller
 {
-    public function index()
-    {
-        $invoices = Invoice::with('client')->latest()->paginate(10);
-        return view('invoices.index', compact('invoices'));
-    }
-
     public function create()
     {
         $clients = Client::all();
         return view('invoices.create', compact('clients'));
     }
-
+    
     public function store(Request $request)
     {
         $request->validate([
             'client_id' => 'required|exists:clients,id',
-            'numero' => 'required|unique:invoices,numero',
-            'date_emission' => 'required|date',
-            'montant' => 'required|numeric',
+            'products' => 'required|array',
+            'logo' => 'nullable|image|max:2048',
+            'tva_rate' => 'nullable|numeric|min:0|max:100'
         ]);
 
-        Invoice::create($request->all());
-        return redirect()->route('invoices.index')->with('success', 'Facture ajoutée avec succès.');
-    }
+        // Upload logo
+        $logo = null;
+        if ($request->hasFile('logo')) {
+            $logo = $request->file('logo')->store('logos', 'public');
+        }
 
-    public function show(Invoice $invoice)
-    {
-        return view('invoices.show', compact('invoice'));
-    }
+        // Calculate total HT
+        $total = 0;
+        foreach ($request->products as $product) {
+            $total += $product['qty'] * $product['prix'];
+        }
 
-    public function edit(Invoice $invoice)
-    {
-        $clients = Client::all();
-        return view('invoices.edit', compact('invoice','clients'));
-    }
+        // TVA (convert % to decimal)
+        $tva_rate = ($request->tva_rate ?? 20) / 100;
 
-    public function update(Request $request, Invoice $invoice)
-    {
-        $request->validate([
-            'client_id' => 'required|exists:clients,id',
-            'numero' => 'required|unique:invoices,numero,'.$invoice->id,
-            'date_emission' => 'required|date',
-            'montant' => 'required|numeric',
+        // Invoice number
+        $lastInvoice = Invoice::latest()->first();
+        $numero = 'F-' . str_pad(($lastInvoice?->id ?? 0) + 1, 4, '0', STR_PAD_LEFT);
+
+        // Save invoice
+        $invoice = Invoice::create([
+            'client_id' => $request->client_id,
+            'numero' => $numero,
+            'products' => $request->products,
+            'logo' => $logo,
+            'total' => $total,
+            'montant' => $total,
+            'tva_amount' => $request->tva_amount,
+            'date_emission' => now(),
+            'entreprise_nom' => $request->entreprise_nom,
+            'entreprise_adresse' => $request->entreprise_adresse,
+            'entreprise_tel' => $request->entreprise_tel,
         ]);
 
-        $invoice->update($request->all());
-        return redirect()->route('invoices.index')->with('success', 'Facture mise à jour.');
+        $invoice->refresh();
+
+        // Generate PDF
+        $pdf = Pdf::loadView('invoices.template', compact('invoice'));
+
+        return $pdf->download('invoice-' . $invoice->numero . '.pdf');
     }
 
-    public function destroy(Invoice $invoice)
+
+    public function index()
     {
-        $invoice->delete();
-        return redirect()->route('invoices.index')->with('success', 'Facture supprimée.');
+        $invoices = Invoice::latest()->get();
+        return view('invoices.index', compact('invoices'));
+    }
+
+    public function download(Invoice $invoice)
+    {
+        $path = $invoice->invoice_path ?? 'invoices/'.$invoice->numero.'.pdf';
+        if (!Storage::disk('public')->exists($path)) {
+            abort(404, 'Invoice not found.');
+        }
+        return response()->download(storage_path('app/public/'.$path));
     }
 }

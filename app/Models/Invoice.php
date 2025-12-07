@@ -2,26 +2,26 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Invoice extends Model
 {
-    use HasFactory;
-
     protected $fillable = [
         'client_id',
         'numero',
-        'date_emission',
+        'products',
+        'logo',
+        'total',
         'montant',
+        'date_emission',  // Ajoutez cette ligne
         'description'
     ];
 
-    // Transforme date_emission en Carbon automatiquement
-    protected $dates = [
-        'date_emission',
+    protected $casts = [
+        'products' => 'array',
+        'date_emission' => 'datetime',
+        'tva_rate' => 'float'
     ];
-
     public function client()
     {
         return $this->belongsTo(Client::class);
